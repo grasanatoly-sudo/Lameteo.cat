@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image, ImageDraw, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 
 st.set_page_config(page_title="Lameteo.cat · Prova", page_icon="🌦️", layout="wide")
 
@@ -21,7 +21,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🌦️ Lameteo.cat · Visor meteorològic de prova")
-st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals, composició i línia temporal.")
+st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals, composició, llegenda i línia temporal.")
 
 DOMAINS = {
     "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1500, 900)},
@@ -209,6 +209,52 @@ def compose_layers(base, layers, opacities):
     return canvas
 
 
+def get_font(size=34):
+    for path in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def add_map_badges(img, title, valid_text, layers_text):
+    canvas = img.convert("RGBA")
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    pad = 22
+    font_big = get_font(36)
+    font_med = get_font(24)
+    font_small = get_font(20)
+
+    box_w = min(canvas.width - 2 * pad, 820)
+    box_h = 132
+    x0, y0 = pad, pad
+    draw.rounded_rectangle((x0, y0, x0 + box_w, y0 + box_h), radius=20, fill=(3, 12, 25, 205), outline=(80, 190, 255, 130), width=2)
+    draw.text((x0 + 24, y0 + 18), title, font=font_big, fill=(255, 255, 255, 255))
+    draw.text((x0 + 24, y0 + 64), f"Vàlid: {valid_text}", font=font_med, fill=(175, 225, 255, 255))
+    draw.text((x0 + 24, y0 + 98), layers_text[:78], font=font_small, fill=(220, 230, 240, 235))
+
+    # Llegenda visual genèrica al mapa
+    leg_w, leg_h = 420, 86
+    lx, ly = canvas.width - leg_w - pad, canvas.height - leg_h - pad
+    draw.rounded_rectangle((lx, ly, lx + leg_w, ly + leg_h), radius=18, fill=(3, 12, 25, 210), outline=(255, 255, 255, 95), width=1)
+    draw.text((lx + 18, ly + 12), "Llegenda orientativa", font=font_small, fill=(255, 255, 255, 240))
+    colors = [(0, 70, 255), (0, 210, 255), (90, 230, 70), (255, 230, 0), (255, 120, 0), (220, 0, 0)]
+    gx, gy, gh = lx + 18, ly + 44, 18
+    for i in range(280):
+        t = i / 279
+        idx = min(int(t * (len(colors) - 1)), len(colors) - 2)
+        local = t * (len(colors) - 1) - idx
+        c0, c1 = colors[idx], colors[idx + 1]
+        col = tuple(int(c0[j] * (1 - local) + c1[j] * local) for j in range(3))
+        draw.line((gx + i, gy, gx + i, gy + gh), fill=col + (255,))
+    draw.text((gx, gy + 24), "baix", font=font_small, fill=(230, 230, 230, 220))
+    draw.text((gx + 230, gy + 24), "alt", font=font_small, fill=(230, 230, 230, 220))
+
+    return Image.alpha_composite(canvas, overlay)
+
+
 def show_pil_image(img, caption):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -305,11 +351,7 @@ with tab_sat:
 with tab_ecmwf:
     st.subheader("🌍 Model europeu ECMWF")
     model_run = rounded_model_run()
-    ctime1, ctime2 = st.columns([2, 1])
-    with ctime1:
-        forecast_hour = st.slider("Línia temporal del model · hora de previsió", -24, 120, 0, 3)
-    with ctime2:
-        use_time = st.checkbox("Aplicar TIME al WMS", value=False)
+    forecast_hour = st.slider("Línia temporal del model · hora de previsió", 0, 120, 0, 3)
     valid_time = model_run + timedelta(hours=forecast_hour)
     time_iso = valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
     st.markdown(
@@ -329,6 +371,7 @@ with tab_ecmwf:
     custom_model = st.text_input("Capes manuals ECMWF separades per comes", value="", placeholder="ex: msl_public,t850_public,z500_public")
     opacity = st.slider("Opacitat de les capes", 0.15, 1.0, 0.85, 0.05)
     show_borders_model = st.checkbox("Mostrar mapa base amb fronteres", value=True, key="model_borders")
+    show_overlay_text = st.checkbox("Mostrar data, hora i llegenda dins del mapa", value=True)
 
     layer_names = [ECMWF_LAYERS[x] for x in selected_labels]
     layer_names += selected_caps
@@ -348,26 +391,33 @@ with tab_ecmwf:
             base = add_borders(base, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 110), line_width=2)
         loaded = []
         captions = []
-        extra = {"TIME": time_iso} if use_time else None
+        extra = {"TIME": time_iso}
         for layer in layer_names:
-            with st.spinner(f"Carregant ECMWF: {layer}..."):
+            with st.spinner(f"Carregant ECMWF: {layer} · {time_iso}..."):
                 r = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true", extra_params=extra)
             if r.ok and "image" in r.headers.get("content-type", ""):
                 loaded.append(image_from_response(r))
                 captions.append(layer)
             else:
-                st.warning(f"No carrega: {layer} · HTTP {r.status_code}")
-                if "Invalid token" in (r.text or ""):
+                st.warning(f"No carrega amb TIME: {layer} · HTTP {r.status_code}. Provo sense TIME...")
+                r2 = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true")
+                if r2.ok and "image" in r2.headers.get("content-type", ""):
+                    loaded.append(image_from_response(r2))
+                    captions.append(layer + " (últim temps disponible)")
+                elif "Invalid token" in (r.text or ""):
                     st.error("ECMWF diu Invalid token. Cal revisar la clau ECMWF_API_KEY.")
-                elif use_time:
-                    st.info("Si una capa no carrega amb TIME, desactiva 'Aplicar TIME al WMS'. Algunes capes públiques tornen l’últim temps per defecte.")
         if loaded:
             final = compose_layers(base, loaded, [opacity] * len(loaded))
             if show_borders_model:
                 final = add_borders(final, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 160), line_width=2)
-            cap = f"ECMWF · {' + '.join(captions)} · {model_domain} · Vàlid: {model_time_label(valid_time)}"
-            if use_time:
-                cap += f" · TIME={time_iso}"
+            if show_overlay_text:
+                final = add_map_badges(
+                    final,
+                    "Lameteo.cat · ECMWF",
+                    model_time_label(valid_time),
+                    "Capes: " + " + ".join(captions),
+                )
+            cap = f"ECMWF · {' + '.join(captions)} · {model_domain} · Vàlid: {model_time_label(valid_time)} · TIME={time_iso}"
             show_pil_image(final, cap)
         else:
             st.error("No s’ha pogut carregar cap capa ECMWF.")
@@ -400,4 +450,4 @@ with tab_api:
         else:
             st.code(r.text[:1500])
 
-st.info("Ara el model té una línia temporal: pots moure la previsió per hores i veure el dia/hora vàlid del mapa.")
+st.info("Ara la línia temporal és només de previsió, aplica TIME automàticament, i la data/hora + llegenda surten dins del mapa.")
