@@ -1,5 +1,6 @@
 import io
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 
 import requests
 import streamlit as st
@@ -15,11 +16,12 @@ st.markdown("""
 .small {color:#9fb4cc; font-size:14px;}
 .ok {color:#66ffbf; font-weight:800;}
 .warn {color:#ffd166; font-weight:800;}
+.timebox {padding:14px 18px;border:1px solid rgba(80,190,255,.25);border-radius:16px;background:rgba(40,120,200,.12);margin:10px 0 18px 0;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🌦️ Lameteo.cat · Visor meteorològic de prova")
-st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals i composició de diverses capes.")
+st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals, composició i línia temporal.")
 
 DOMAINS = {
     "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1500, 900)},
@@ -85,7 +87,7 @@ def get_eumetsat_token():
     return r.json().get("access_token"), None
 
 
-def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=None, transparent="true"):
+def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=None, transparent="true", extra_params=None):
     params = {
         "SERVICE": "WMS",
         "VERSION": "1.1.1",
@@ -99,6 +101,8 @@ def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=N
         "FORMAT": "image/png",
         "TRANSPARENT": transparent,
     }
+    if extra_params:
+        params.update({k: v for k, v in extra_params.items() if v not in (None, "")})
     if ecmwf_key:
         params["token"] = ecmwf_key
     headers = {}
@@ -216,6 +220,17 @@ def show_response_error(r):
     st.code((r.text or "").strip()[:1200])
 
 
+def rounded_model_run():
+    now = datetime.now(timezone.utc)
+    hour = (now.hour // 6) * 6
+    return now.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def model_time_label(dt):
+    dies = ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"]
+    return f"{dies[dt.weekday()]} {dt.strftime('%d/%m %H:%M')} UTC"
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_eumetsat_layers():
     token, err = get_eumetsat_token()
@@ -251,6 +266,7 @@ with tab_radar:
 
 with tab_sat:
     st.subheader("🛰️ Satèl·lit EUMETSAT")
+    st.markdown("<div class='timebox'>🕒 Satèl·lit: última imatge disponible del servei EUMETSAT WMS.</div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.1, 1.2, 1])
     with c1:
         sat_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=2, key="sat_domain")
@@ -282,12 +298,26 @@ with tab_sat:
                 img = image_from_response(r)
                 if show_borders_sat:
                     img = add_borders(img, DOMAINS[sat_domain]["bbox"], color=(255, 255, 255, 155), line_width=2)
-                show_pil_image(img, f"EUMETSAT · {layer} · {sat_domain}")
+                show_pil_image(img, f"EUMETSAT · {layer} · {sat_domain} · última imatge disponible")
             else:
                 show_response_error(r)
 
 with tab_ecmwf:
     st.subheader("🌍 Model europeu ECMWF")
+    model_run = rounded_model_run()
+    ctime1, ctime2 = st.columns([2, 1])
+    with ctime1:
+        forecast_hour = st.slider("Línia temporal del model · hora de previsió", -24, 120, 0, 3)
+    with ctime2:
+        use_time = st.checkbox("Aplicar TIME al WMS", value=False)
+    valid_time = model_run + timedelta(hours=forecast_hour)
+    time_iso = valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    st.markdown(
+        f"<div class='timebox'>🕒 Run aproximat ECMWF: <b>{model_run.strftime('%d/%m %H UTC')}</b> · "
+        f"Previsió: <b>+{forecast_hour} h</b> · Vàlid per: <b>{model_time_label(valid_time)}</b></div>",
+        unsafe_allow_html=True,
+    )
+
     c1, c2 = st.columns([1, 2])
     with c1:
         model_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=1, key="ecmwf_domain")
@@ -318,9 +348,10 @@ with tab_ecmwf:
             base = add_borders(base, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 110), line_width=2)
         loaded = []
         captions = []
+        extra = {"TIME": time_iso} if use_time else None
         for layer in layer_names:
             with st.spinner(f"Carregant ECMWF: {layer}..."):
-                r = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true")
+                r = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true", extra_params=extra)
             if r.ok and "image" in r.headers.get("content-type", ""):
                 loaded.append(image_from_response(r))
                 captions.append(layer)
@@ -328,11 +359,16 @@ with tab_ecmwf:
                 st.warning(f"No carrega: {layer} · HTTP {r.status_code}")
                 if "Invalid token" in (r.text or ""):
                     st.error("ECMWF diu Invalid token. Cal revisar la clau ECMWF_API_KEY.")
+                elif use_time:
+                    st.info("Si una capa no carrega amb TIME, desactiva 'Aplicar TIME al WMS'. Algunes capes públiques tornen l’últim temps per defecte.")
         if loaded:
             final = compose_layers(base, loaded, [opacity] * len(loaded))
             if show_borders_model:
                 final = add_borders(final, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 160), line_width=2)
-            show_pil_image(final, f"ECMWF · {' + '.join(captions)} · {model_domain}")
+            cap = f"ECMWF · {' + '.join(captions)} · {model_domain} · Vàlid: {model_time_label(valid_time)}"
+            if use_time:
+                cap += f" · TIME={time_iso}"
+            show_pil_image(final, cap)
         else:
             st.error("No s’ha pogut carregar cap capa ECMWF.")
 
@@ -364,4 +400,4 @@ with tab_api:
         else:
             st.code(r.text[:1500])
 
-st.info("He afegit més capes EUMETSAT, capes detectades automàticament i correcció perquè ECMWF no peti si una imatge torna amb mida diferent.")
+st.info("Ara el model té una línia temporal: pots moure la previsió per hores i veure el dia/hora vàlid del mapa.")
