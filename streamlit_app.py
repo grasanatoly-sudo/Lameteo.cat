@@ -19,7 +19,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🌦️ Lameteo.cat · Visor meteorològic de prova")
-st.caption("Radar, satèl·lit i models. Ara amb fronteres i composició de diverses capes.")
+st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals i composició de diverses capes.")
 
 DOMAINS = {
     "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1500, 900)},
@@ -32,6 +32,14 @@ SAT_LAYERS = {
     "Natural color / RGB": "msg_fes:rgb_natural",
     "Infraroig 10.8": "msg_fes:ir108",
     "Vapor d’aigua 6.2": "msg_fes:wv062",
+    "Visible 0.6": "msg_fes:vis006",
+    "Visible 0.8": "msg_fes:vis008",
+    "NIR 1.6": "msg_fes:nir016",
+    "IR 3.9": "msg_fes:ir039",
+    "IR 8.7": "msg_fes:ir087",
+    "IR 9.7": "msg_fes:ir097",
+    "IR 12.0": "msg_fes:ir120",
+    "IR 13.4": "msg_fes:ir134",
     "Capa manual": "manual",
 }
 
@@ -109,7 +117,7 @@ def wms_capabilities(url, token=None, ecmwf_key=None):
     return requests.get(url, params=params, headers=headers, timeout=45)
 
 
-def extract_layer_names(xml_text, max_layers=300):
+def extract_layer_names(xml_text, max_layers=500):
     names = []
     try:
         root = ET.fromstring(xml_text)
@@ -152,7 +160,8 @@ def draw_geometry(draw, geom, bbox, width, height, color, line_width):
             pts = []
             for lon, lat, *_ in ring:
                 x, y = lonlat_to_px(lon, lat, bbox, width, height)
-                pts.append((x, y))
+                if -100 <= x <= width + 100 and -100 <= y <= height + 100:
+                    pts.append((x, y))
             if len(pts) > 1:
                 draw.line(pts, fill=color, width=line_width, joint="curve")
 
@@ -170,18 +179,24 @@ def add_borders(img, bbox, color=(255, 255, 255, 145), line_width=2):
 
 
 def dark_background(width, height):
-    img = Image.new("RGBA", (width, height), (6, 17, 32, 255))
-    return img
+    return Image.new("RGBA", (width, height), (6, 17, 32, 255))
 
 
 def image_from_response(r):
     return Image.open(io.BytesIO(r.content)).convert("RGBA")
 
 
+def normalize_layer(layer_img, size):
+    layer_img = layer_img.convert("RGBA")
+    if layer_img.size != size:
+        layer_img = layer_img.resize(size, Image.Resampling.LANCZOS)
+    return layer_img
+
+
 def compose_layers(base, layers, opacities):
     canvas = base.convert("RGBA")
     for layer_img, opacity in zip(layers, opacities):
-        layer_img = layer_img.convert("RGBA")
+        layer_img = normalize_layer(layer_img, canvas.size)
         if opacity < 1:
             alpha = layer_img.getchannel("A")
             alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
@@ -199,6 +214,26 @@ def show_pil_image(img, caption):
 def show_response_error(r):
     st.error(f"La capa no ha carregat. HTTP {r.status_code}")
     st.code((r.text or "").strip()[:1200])
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_eumetsat_layers():
+    token, err = get_eumetsat_token()
+    if err:
+        return []
+    r = wms_capabilities("https://view.eumetsat.int/geoserver/ows", token=token)
+    if not r.ok:
+        return []
+    return extract_layer_names(r.text, max_layers=500)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_ecmwf_layers():
+    key = clean_secret("ECMWF_API_KEY")
+    r = wms_capabilities("https://eccharts.ecmwf.int/wms/", ecmwf_key=key)
+    if not r.ok:
+        return []
+    return extract_layer_names(r.text, max_layers=500)
 
 
 tab_radar, tab_sat, tab_ecmwf, tab_api = st.tabs(["🌧️ Radar", "🛰️ Satèl·lit EUMETSAT", "🌍 Model europeu ECMWF", "🔐 Estat APIs"])
@@ -223,9 +258,16 @@ with tab_sat:
         sat_label = st.selectbox("Variable satèl·lit", list(SAT_LAYERS.keys()), key="sat_layer")
     with c3:
         custom_sat = st.text_input("Capa manual", value="", placeholder="ex: msg_fes:rgb_natural")
+
+    available_sat = get_eumetsat_layers()
+    selected_from_cap = st.selectbox("Capes detectades pel compte EUMETSAT", ["-- no usar --"] + available_sat, index=0)
     show_borders_sat = st.checkbox("Mostrar fronteres i línies de costa", value=True, key="sat_borders")
 
-    layer = custom_sat.strip() or SAT_LAYERS[sat_label]
+    if selected_from_cap != "-- no usar --":
+        layer = selected_from_cap
+    else:
+        layer = custom_sat.strip() or SAT_LAYERS[sat_label]
+
     if layer == "manual":
         st.warning("Escriu el nom exacte d’una capa EUMETSAT a 'Capa manual'.")
     else:
@@ -250,18 +292,19 @@ with tab_ecmwf:
     with c1:
         model_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=1, key="ecmwf_domain")
     with c2:
-        selected_labels = st.multiselect(
-            "Capes ECMWF superposades",
-            list(ECMWF_LAYERS.keys()),
-            default=["Pressió nivell del mar"],
-        )
+        selected_labels = st.multiselect("Capes ECMWF superposades", list(ECMWF_LAYERS.keys()), default=["Pressió nivell del mar"])
+
+    available_model = get_ecmwf_layers()
+    selected_caps = st.multiselect("Capes detectades pel compte ECMWF", available_model, default=[])
     custom_model = st.text_input("Capes manuals ECMWF separades per comes", value="", placeholder="ex: msl_public,t850_public,z500_public")
     opacity = st.slider("Opacitat de les capes", 0.15, 1.0, 0.85, 0.05)
     show_borders_model = st.checkbox("Mostrar mapa base amb fronteres", value=True, key="model_borders")
 
     layer_names = [ECMWF_LAYERS[x] for x in selected_labels]
+    layer_names += selected_caps
     if custom_model.strip():
         layer_names += [x.strip() for x in custom_model.split(",") if x.strip()]
+    layer_names = list(dict.fromkeys(layer_names))
 
     width, height = DOMAINS[model_domain]["size"]
     ecmwf_key = clean_secret("ECMWF_API_KEY")
@@ -298,8 +341,8 @@ with tab_api:
     st.write("EUMETSAT_KEY:", "✅ configurada" if has_secret("EUMETSAT_KEY") else "❌ falta")
     st.write("EUMETSAT_SECRET:", "✅ configurada" if has_secret("EUMETSAT_SECRET") else "❌ falta")
     st.write("ECMWF_API_KEY:", "✅ configurada" if has_secret("ECMWF_API_KEY") else "❌ falta")
-
     st.divider()
+
     if st.button("Provar GetCapabilities EUMETSAT"):
         token, err = get_eumetsat_token()
         if err:
@@ -308,9 +351,7 @@ with tab_api:
             r = wms_capabilities("https://view.eumetsat.int/geoserver/ows", token=token)
             st.write("HTTP", r.status_code, r.headers.get("content-type"))
             if r.ok:
-                layers = extract_layer_names(r.text)
-                st.write("Capes trobades:")
-                st.code("\n".join(layers[:300]) or r.text[:1500])
+                st.code("\n".join(extract_layer_names(r.text, 500)) or r.text[:1500])
             else:
                 st.code(r.text[:1500])
 
@@ -319,10 +360,8 @@ with tab_api:
         r = wms_capabilities("https://eccharts.ecmwf.int/wms/", ecmwf_key=key)
         st.write("HTTP", r.status_code, r.headers.get("content-type"))
         if r.ok:
-            layers = extract_layer_names(r.text)
-            st.write("Capes trobades:")
-            st.code("\n".join(layers[:300]) or r.text[:1500])
+            st.code("\n".join(extract_layer_names(r.text, 500)) or r.text[:1500])
         else:
             st.code(r.text[:1500])
 
-st.info("Ara pots superposar diverses capes ECMWF i afegir fronteres. Per capes extra, ves a Estat APIs → GetCapabilities i copia el nom exacte a les capes manuals.")
+st.info("He afegit més capes EUMETSAT, capes detectades automàticament i correcció perquè ECMWF no peti si una imatge torna amb mida diferent.")
