@@ -1,8 +1,10 @@
+import io
 import xml.etree.ElementTree as ET
 
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from PIL import Image, ImageDraw, ImageEnhance
 
 st.set_page_config(page_title="Lameteo.cat · Prova", page_icon="🌦️", layout="wide")
 
@@ -17,10 +19,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🌦️ Lameteo.cat · Visor meteorològic de prova")
-st.caption("Radar, satèl·lit i models. Ara el satèl·lit usa WMS 1.1.1 per evitar el problema de coordenades.")
+st.caption("Radar, satèl·lit i models. Ara amb fronteres i composició de diverses capes.")
 
 DOMAINS = {
-    "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1400, 900)},
+    "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1500, 900)},
     "Península Ibèrica": {"bbox": "-10.8,35.0,5.0,44.6", "center": "40.2,-3.5,5", "size": (1500, 900)},
     "Europa": {"bbox": "-13,34,32,72", "center": "48,8,4", "size": (1500, 1150)},
     "Món": {"bbox": "-80,-60,80,80", "center": "20,0,2", "size": (1500, 900)},
@@ -29,9 +31,8 @@ DOMAINS = {
 SAT_LAYERS = {
     "Natural color / RGB": "msg_fes:rgb_natural",
     "Infraroig 10.8": "msg_fes:ir108",
-    "Airmass RGB": "msg_fes:airmass",
-    "Dust RGB": "msg_fes:dust",
     "Vapor d’aigua 6.2": "msg_fes:wv062",
+    "Capa manual": "manual",
 }
 
 ECMWF_LAYERS = {
@@ -65,7 +66,6 @@ def get_eumetsat_token():
     secret = clean_secret("EUMETSAT_SECRET")
     if not key or not secret:
         return None, "Falten EUMETSAT_KEY i/o EUMETSAT_SECRET a Secrets."
-
     r = requests.post(
         "https://api.eumetsat.int/token",
         auth=(key, secret),
@@ -77,9 +77,7 @@ def get_eumetsat_token():
     return r.json().get("access_token"), None
 
 
-def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=None, transparent="false"):
-    # WMS 1.1.1 + SRS EPSG:4326 manté BBOX en ordre lon,lat.
-    # Això evita que Europa surti desplaçada cap a Aràbia o altres zones.
+def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=None, transparent="true"):
     params = {
         "SERVICE": "WMS",
         "VERSION": "1.1.1",
@@ -94,7 +92,6 @@ def wms_getmap(url, layer, bbox, width=1500, height=950, token=None, ecmwf_key=N
         "TRANSPARENT": transparent,
     }
     if ecmwf_key:
-        # Provem el paràmetre token perquè alguns WMS d'ECMWF el demanen així.
         params["token"] = ecmwf_key
     headers = {}
     if token:
@@ -112,7 +109,7 @@ def wms_capabilities(url, token=None, ecmwf_key=None):
     return requests.get(url, params=params, headers=headers, timeout=45)
 
 
-def extract_layer_names(xml_text, max_layers=120):
+def extract_layer_names(xml_text, max_layers=300):
     names = []
     try:
         root = ET.fromstring(xml_text)
@@ -126,6 +123,77 @@ def extract_layer_names(xml_text, max_layers=120):
     except Exception:
         return []
     return names
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_borders_geojson():
+    url = "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def lonlat_to_px(lon, lat, bbox, width, height):
+    minlon, minlat, maxlon, maxlat = [float(x) for x in bbox.split(",")]
+    x = (lon - minlon) / (maxlon - minlon) * width
+    y = (maxlat - lat) / (maxlat - minlat) * height
+    return x, y
+
+
+def draw_geometry(draw, geom, bbox, width, height, color, line_width):
+    if geom.get("type") == "Polygon":
+        polygons = [geom.get("coordinates", [])]
+    elif geom.get("type") == "MultiPolygon":
+        polygons = geom.get("coordinates", [])
+    else:
+        return
+    for poly in polygons:
+        for ring in poly:
+            pts = []
+            for lon, lat, *_ in ring:
+                x, y = lonlat_to_px(lon, lat, bbox, width, height)
+                pts.append((x, y))
+            if len(pts) > 1:
+                draw.line(pts, fill=color, width=line_width, joint="curve")
+
+
+def add_borders(img, bbox, color=(255, 255, 255, 145), line_width=2):
+    try:
+        data = load_borders_geojson()
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        for feat in data.get("features", []):
+            draw_geometry(draw, feat.get("geometry", {}), bbox, img.width, img.height, color, line_width)
+        return Image.alpha_composite(img.convert("RGBA"), overlay)
+    except Exception:
+        return img.convert("RGBA")
+
+
+def dark_background(width, height):
+    img = Image.new("RGBA", (width, height), (6, 17, 32, 255))
+    return img
+
+
+def image_from_response(r):
+    return Image.open(io.BytesIO(r.content)).convert("RGBA")
+
+
+def compose_layers(base, layers, opacities):
+    canvas = base.convert("RGBA")
+    for layer_img, opacity in zip(layers, opacities):
+        layer_img = layer_img.convert("RGBA")
+        if opacity < 1:
+            alpha = layer_img.getchannel("A")
+            alpha = ImageEnhance.Brightness(alpha).enhance(opacity)
+            layer_img.putalpha(alpha)
+        canvas = Image.alpha_composite(canvas, layer_img)
+    return canvas
+
+
+def show_pil_image(img, caption):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    st.image(buf.getvalue(), use_container_width=True, caption=caption)
 
 
 def show_response_error(r):
@@ -155,46 +223,75 @@ with tab_sat:
         sat_label = st.selectbox("Variable satèl·lit", list(SAT_LAYERS.keys()), key="sat_layer")
     with c3:
         custom_sat = st.text_input("Capa manual", value="", placeholder="ex: msg_fes:rgb_natural")
+    show_borders_sat = st.checkbox("Mostrar fronteres i línies de costa", value=True, key="sat_borders")
 
     layer = custom_sat.strip() or SAT_LAYERS[sat_label]
-    width, height = DOMAINS[sat_domain]["size"]
-    token, err = get_eumetsat_token()
-    if err:
-        st.error(err)
+    if layer == "manual":
+        st.warning("Escriu el nom exacte d’una capa EUMETSAT a 'Capa manual'.")
     else:
-        with st.spinner("Carregant imatge EUMETSAT..."):
-            r = wms_getmap("https://view.eumetsat.int/geoserver/ows", layer, DOMAINS[sat_domain]["bbox"], width, height, token=token, transparent="false")
-        if r.ok and "image" in r.headers.get("content-type", ""):
-            st.image(r.content, use_container_width=True, caption=f"EUMETSAT · {layer} · {sat_domain}")
+        width, height = DOMAINS[sat_domain]["size"]
+        token, err = get_eumetsat_token()
+        if err:
+            st.error(err)
         else:
-            show_response_error(r)
+            with st.spinner("Carregant imatge EUMETSAT..."):
+                r = wms_getmap("https://view.eumetsat.int/geoserver/ows", layer, DOMAINS[sat_domain]["bbox"], width, height, token=token, transparent="false")
+            if r.ok and "image" in r.headers.get("content-type", ""):
+                img = image_from_response(r)
+                if show_borders_sat:
+                    img = add_borders(img, DOMAINS[sat_domain]["bbox"], color=(255, 255, 255, 155), line_width=2)
+                show_pil_image(img, f"EUMETSAT · {layer} · {sat_domain}")
+            else:
+                show_response_error(r)
 
 with tab_ecmwf:
     st.subheader("🌍 Model europeu ECMWF")
-    c1, c2, c3 = st.columns([1.1, 1.2, 1])
+    c1, c2 = st.columns([1, 2])
     with c1:
         model_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=1, key="ecmwf_domain")
     with c2:
-        model_label = st.selectbox("Variable ECMWF", list(ECMWF_LAYERS.keys()), key="ecmwf_layer")
-    with c3:
-        custom_model = st.text_input("Capa manual ECMWF", value="", placeholder="ex: msl_public")
+        selected_labels = st.multiselect(
+            "Capes ECMWF superposades",
+            list(ECMWF_LAYERS.keys()),
+            default=["Pressió nivell del mar"],
+        )
+    custom_model = st.text_input("Capes manuals ECMWF separades per comes", value="", placeholder="ex: msl_public,t850_public,z500_public")
+    opacity = st.slider("Opacitat de les capes", 0.15, 1.0, 0.85, 0.05)
+    show_borders_model = st.checkbox("Mostrar mapa base amb fronteres", value=True, key="model_borders")
 
-    layer = custom_model.strip() or ECMWF_LAYERS[model_label]
+    layer_names = [ECMWF_LAYERS[x] for x in selected_labels]
+    if custom_model.strip():
+        layer_names += [x.strip() for x in custom_model.split(",") if x.strip()]
+
     width, height = DOMAINS[model_domain]["size"]
     ecmwf_key = clean_secret("ECMWF_API_KEY")
     if not ecmwf_key:
         st.error("Falta ECMWF_API_KEY a Secrets.")
+    elif not layer_names:
+        st.warning("Tria com a mínim una capa ECMWF.")
     else:
-        with st.spinner("Carregant imatge ECMWF..."):
-            r = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true")
-        if r.ok and "image" in r.headers.get("content-type", ""):
-            st.image(r.content, use_container_width=True, caption=f"ECMWF · {layer} · {model_domain}")
-        elif r.status_code == 403 and "Invalid token" in (r.text or ""):
-            st.error("ECMWF diu: Invalid token. La clau ECMWF que hi ha a Secrets no és vàlida per ecCharts WMS, o s’ha copiat malament.")
-            st.warning("Revisa ECMWF_API_KEY a Streamlit Secrets. Si acaba de ser creada, genera’n una nova i enganxa-la sense espais ni tabuladors.")
-            st.code((r.text or "").strip()[:1200])
+        base = dark_background(width, height)
+        if show_borders_model:
+            base = add_borders(base, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 110), line_width=2)
+        loaded = []
+        captions = []
+        for layer in layer_names:
+            with st.spinner(f"Carregant ECMWF: {layer}..."):
+                r = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true")
+            if r.ok and "image" in r.headers.get("content-type", ""):
+                loaded.append(image_from_response(r))
+                captions.append(layer)
+            else:
+                st.warning(f"No carrega: {layer} · HTTP {r.status_code}")
+                if "Invalid token" in (r.text or ""):
+                    st.error("ECMWF diu Invalid token. Cal revisar la clau ECMWF_API_KEY.")
+        if loaded:
+            final = compose_layers(base, loaded, [opacity] * len(loaded))
+            if show_borders_model:
+                final = add_borders(final, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 160), line_width=2)
+            show_pil_image(final, f"ECMWF · {' + '.join(captions)} · {model_domain}")
         else:
-            show_response_error(r)
+            st.error("No s’ha pogut carregar cap capa ECMWF.")
 
 with tab_api:
     st.subheader("🔐 Estat de claus i capes")
@@ -212,8 +309,8 @@ with tab_api:
             st.write("HTTP", r.status_code, r.headers.get("content-type"))
             if r.ok:
                 layers = extract_layer_names(r.text)
-                st.write("Primeres capes trobades:")
-                st.code("\n".join(layers[:120]) or r.text[:1500])
+                st.write("Capes trobades:")
+                st.code("\n".join(layers[:300]) or r.text[:1500])
             else:
                 st.code(r.text[:1500])
 
@@ -223,9 +320,9 @@ with tab_api:
         st.write("HTTP", r.status_code, r.headers.get("content-type"))
         if r.ok:
             layers = extract_layer_names(r.text)
-            st.write("Primeres capes trobades:")
-            st.code("\n".join(layers[:120]) or r.text[:1500])
+            st.write("Capes trobades:")
+            st.code("\n".join(layers[:300]) or r.text[:1500])
         else:
             st.code(r.text[:1500])
 
-st.info("Satèl·lit corregit: ara utilitza WMS 1.1.1 per evitar coordenades mal interpretades. ECMWF necessita una clau vàlida per ecCharts WMS.")
+st.info("Ara pots superposar diverses capes ECMWF i afegir fronteres. Per capes extra, ves a Estat APIs → GetCapabilities i copia el nom exacte a les capes manuals.")
