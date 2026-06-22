@@ -19,23 +19,37 @@ st.markdown("""
 .small {color:#9fb4cc; font-size:14px;}
 .timebox {padding:14px 18px;border:1px solid rgba(80,190,255,.25);border-radius:16px;background:rgba(40,120,200,.12);margin:10px 0 18px 0;}
 .stDownloadButton button {border-radius:999px; font-weight:800;}
+[data-baseweb="tab"] {font-weight:800;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🌦️ Lameteo.cat · Visor meteorològic de prova")
 st.caption("Radar, satèl·lit i models. Amb fronteres, capes manuals, composició, llegenda ECMWF i exportació MP4.")
 
+# Format 16:9 perquè el mapa es vegi molt més professional i no quedi tan panoràmic.
 DOMAINS = {
-    "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1700, 1000)},
-    "Península Ibèrica": {"bbox": "-10.8,35.0,5.0,44.6", "center": "40.2,-3.5,5", "size": (1800, 1050)},
-    "Europa": {"bbox": "-13,34,32,72", "center": "48,8,4", "size": (2200, 1450)},
-    "Món": {"bbox": "-80,-60,80,80", "center": "20,0,2", "size": (2200, 1300)},
+    "Catalunya": {"bbox": "-1.2,39.7,4.2,43.2", "center": "41.65,1.8,7", "size": (1920, 1080)},
+    "Península Ibèrica": {"bbox": "-10.8,35.0,5.0,44.6", "center": "40.2,-3.5,5", "size": (1920, 1080)},
+    "Europa": {"bbox": "-13,34,32,72", "center": "48,8,4", "size": (1920, 1080)},
+    "Món": {"bbox": "-80,-60,80,80", "center": "20,0,2", "size": (1920, 1080)},
 }
 
+# Capes fixes típiques. Si alguna no existeix al compte, es pot buscar a "Capes detectades".
 SAT_LAYERS = {
     "Natural color / RGB": "msg_fes:rgb_natural",
+    "Natural color millorat": "msg_fes:rgb_natural_enhanced",
+    "Airmass RGB": "msg_fes:rgb_airmass",
+    "Dust RGB / pols": "msg_fes:rgb_dust",
+    "Day microphysics": "msg_fes:rgb_day_microphysics",
+    "Night microphysics": "msg_fes:rgb_night_microphysics",
+    "Severe storms RGB": "msg_fes:rgb_severe_storms",
+    "Cloud phase RGB": "msg_fes:rgb_cloud_phase",
+    "Cloud type": "msg_fes:cloud_type",
+    "Cloud top temperature": "msg_fes:ctth_temperature",
+    "Cloud top height": "msg_fes:ctth_height",
     "Infraroig 10.8": "msg_fes:ir108",
     "Vapor d’aigua 6.2": "msg_fes:wv062",
+    "Vapor d’aigua 7.3": "msg_fes:wv073",
     "Visible 0.6": "msg_fes:vis006",
     "Visible 0.8": "msg_fes:vis008",
     "NIR 1.6": "msg_fes:nir016",
@@ -52,6 +66,12 @@ ECMWF_LAYERS = {
     "Temperatura 850 hPa": "t850_public",
     "Geopotencial 500 hPa": "z500_public",
     "Vent 850 hPa": "ws850_public",
+    "Vent 10 m": "10u_public",
+    "Temperatura 2 m": "2t_public",
+    "Precipitació total": "tp_public",
+    "Neu": "sf_public",
+    "CAPE": "cape_public",
+    "Humitat relativa 700 hPa": "r700_public",
     "Ensemble Z500 mitjana": "z500_mean_public",
     "Ensemble T850 mitjana": "t850_mean_public",
     "Ensemble MSLP mitjana": "msl_mean_public",
@@ -65,12 +85,35 @@ LAYER_TITLES = {
     "t850_public": "Temperatura a 850 hPa",
     "z500_public": "Geopotencial a 500 hPa",
     "ws850_public": "Vent a 850 hPa",
+    "10u_public": "Vent a 10 metres",
+    "2t_public": "Temperatura a 2 metres",
+    "tp_public": "Precipitació total",
+    "sf_public": "Neu acumulada",
+    "cape_public": "CAPE",
+    "r700_public": "Humitat relativa a 700 hPa",
     "z500_mean_public": "Ensemble · Z500 mitjana",
     "t850_mean_public": "Ensemble · T850 mitjana",
     "msl_mean_public": "Ensemble · MSLP mitjana",
     "z500_spread_public": "Ensemble · Z500 spread",
     "t850_spread_public": "Ensemble · T850 spread",
     "msl_spread_public": "Ensemble · MSLP spread",
+}
+
+LEGEND_PRESETS = {
+    "t850_public": {"unit": "°C", "values": [-52, -44, -36, -28, -20, -12, -4, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48],
+                    "colors": ["#bd44d6", "#812cb2", "#2d1838", "#3100b8", "#004ee8", "#00c8ff", "#1df7ff", "#25e857", "#b6ff00", "#ffff78", "#fff000", "#ffb000", "#ff7b00", "#ff2300", "#e60000", "#9b0024", "#e900a8", "#ff7cff", "#ffc7ff"]},
+    "2t_public": {"unit": "°C", "values": [-20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48],
+                  "colors": ["#4b0082", "#0038ff", "#00a8ff", "#00fff0", "#3cff7a", "#b8ff00", "#ffff66", "#ffd400", "#ff9a00", "#ff5a00", "#ff0000", "#c40000", "#8b0000", "#b00080", "#ff4edb", "#ffc2ff", "#ffffff"]},
+    "msl_public": {"unit": "hPa", "values": [960, 970, 980, 990, 1000, 1010, 1020, 1030, 1040, 1050],
+                   "colors": ["#5b2b83", "#2148a8", "#208ad6", "#24c6d8", "#7ce56a", "#f0e95a", "#ffb13b", "#f06a2e", "#d92b2b"]},
+    "z500_public": {"unit": "dam", "values": [500, 516, 532, 548, 564, 580, 596],
+                    "colors": ["#2b4c7e", "#397dbc", "#43b7c2", "#84d65a", "#f0df4c", "#f28d35", "#c9412f"]},
+    "ws850_public": {"unit": "km/h", "values": [0, 20, 40, 60, 80, 100, 120, 140],
+                     "colors": ["#e9f7ff", "#8fd3ff", "#23a3ff", "#22d45a", "#ffd21f", "#ff7a1a", "#e60000", "#9d00ff"]},
+    "tp_public": {"unit": "mm", "values": [0, 1, 2, 5, 10, 20, 50, 100],
+                  "colors": ["#f7f7f7", "#b6e6ff", "#55bfff", "#1380ff", "#00b050", "#ffe600", "#ff8c00", "#d00000"]},
+    "cape_public": {"unit": "J/kg", "values": [0, 100, 250, 500, 1000, 1500, 2000, 3000],
+                    "colors": ["#eeeeee", "#bfffbf", "#78e65a", "#d6f000", "#ffd000", "#ff8900", "#e00000", "#8b0000"]},
 }
 
 
@@ -91,12 +134,7 @@ def get_eumetsat_token():
     secret = clean_secret("EUMETSAT_SECRET")
     if not key or not secret:
         return None, "Falten EUMETSAT_KEY i/o EUMETSAT_SECRET a Secrets."
-    r = requests.post(
-        "https://api.eumetsat.int/token",
-        auth=(key, secret),
-        data={"grant_type": "client_credentials"},
-        timeout=25,
-    )
+    r = requests.post("https://api.eumetsat.int/token", auth=(key, secret), data={"grant_type": "client_credentials"}, timeout=25)
     if not r.ok:
         return None, f"EUMETSAT token error {r.status_code}: {r.text[:250]}"
     return r.json().get("access_token"), None
@@ -137,26 +175,22 @@ def wms_capabilities(url, token=None, ecmwf_key=None):
 
 
 def wms_legend(layer, ecmwf_key=None):
-    # ECMWF no sempre dona llegenda. Si no la dona, fem una llegenda orientativa bonica.
-    params = {
-        "SERVICE": "WMS",
-        "VERSION": "1.1.1",
-        "REQUEST": "GetLegendGraphic",
-        "LAYER": layer,
-        "FORMAT": "image/png",
-    }
+    # Intent real: ECMWF WMS GetLegendGraphic. Si no torna imatge clara, fem llegenda local amb valors.
+    params = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetLegendGraphic", "LAYER": layer, "FORMAT": "image/png"}
     if ecmwf_key:
         params["token"] = ecmwf_key
     try:
         r = requests.get("https://eccharts.ecmwf.int/wms/", params=params, timeout=30)
-        if r.ok and "image" in r.headers.get("content-type", "") and len(r.content) > 200:
-            return Image.open(io.BytesIO(r.content)).convert("RGBA")
+        if r.ok and "image" in r.headers.get("content-type", "") and len(r.content) > 500:
+            img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+            if img.width > 20 and img.height > 10:
+                return img
     except Exception:
-        return None
+        pass
     return None
 
 
-def extract_layer_names(xml_text, max_layers=500):
+def extract_layer_names(xml_text, max_layers=700):
     names = []
     try:
         root = ET.fromstring(xml_text)
@@ -199,13 +233,13 @@ def draw_geometry(draw, geom, bbox, width, height, color, line_width):
             pts = []
             for lon, lat, *_ in ring:
                 x, y = lonlat_to_px(lon, lat, bbox, width, height)
-                if -100 <= x <= width + 100 and -100 <= y <= height + 100:
+                if -150 <= x <= width + 150 and -150 <= y <= height + 150:
                     pts.append((x, y))
             if len(pts) > 1:
                 draw.line(pts, fill=color, width=line_width, joint="curve")
 
 
-def add_borders(img, bbox, color=(255, 255, 255, 145), line_width=2):
+def add_borders(img, bbox, color=(255, 255, 255, 155), line_width=2):
     try:
         data = load_borders_geojson()
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -264,51 +298,71 @@ def readable_title(layers):
     return f"{first} + {len(layers) - 1} capa/es"
 
 
-def add_map_badges(img, title, valid_text, run_text, layers_text, legend_img=None):
+def make_local_legend(layer, width=620, height=170):
+    preset = LEGEND_PRESETS.get(layer)
+    if not preset:
+        return None
+    colors = [tuple(int(c.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) for c in preset["colors"]]
+    values = preset["values"]
+    unit = preset["unit"]
+    img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(img)
+    f_title = get_font(26)
+    f_val = get_font(18, False)
+    draw.text((0, 0), f"Escala · {unit}", font=f_title, fill=(255, 255, 255, 255))
+    gx, gy, gw, gh = 18, 52, width - 36, 42
+    for x in range(gw):
+        t = x / max(gw - 1, 1)
+        idx = min(int(t * (len(colors) - 1)), len(colors) - 2)
+        local = t * (len(colors) - 1) - idx
+        c0, c1 = colors[idx], colors[idx + 1]
+        col = tuple(int(c0[j] * (1 - local) + c1[j] * local) for j in range(3))
+        draw.line((gx + x, gy, gx + x, gy + gh), fill=col + (255,))
+    draw.rectangle((gx, gy, gx + gw, gy + gh), outline=(255, 255, 255, 210), width=2)
+    # valors cada pocs ticks
+    tick_count = min(len(values), 10)
+    if tick_count >= 2:
+        for i in range(tick_count):
+            pos = int(i * (len(values) - 1) / (tick_count - 1))
+            x = gx + int(pos / max(len(values) - 1, 1) * gw)
+            draw.line((x, gy + gh, x, gy + gh + 8), fill=(255, 255, 255, 220), width=2)
+            txt = str(values[pos])
+            draw.text((x - 18, gy + gh + 12), txt, font=f_val, fill=(235, 235, 235, 245))
+    return img
+
+
+def add_map_badges(img, title, valid_text, run_text, layers_text, legend_img=None, legend_layer=None):
     canvas = img.convert("RGBA")
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     pad = 34
-    font_title = get_font(64)
-    font_med = get_font(32)
-    font_small = get_font(25, bold=False)
+    font_title = get_font(58)
+    font_med = get_font(31)
+    font_small = get_font(24, bold=False)
 
-    box_w = min(canvas.width - 2 * pad, 1300)
-    box_h = 210
+    # Caixa de títol més professional, però no tapa mig mapa.
+    box_w = min(canvas.width - 2 * pad, 1180)
+    box_h = 205
     x0, y0 = pad, pad
-    draw.rounded_rectangle((x0, y0, x0 + box_w, y0 + box_h), radius=28, fill=(2, 10, 22, 222), outline=(100, 210, 255, 170), width=3)
+    draw.rounded_rectangle((x0, y0, x0 + box_w, y0 + box_h), radius=28, fill=(4, 13, 28, 226), outline=(100, 210, 255, 190), width=3)
     draw.text((x0 + 34, y0 + 22), title, font=font_title, fill=(255, 255, 255, 255))
-    draw.text((x0 + 34, y0 + 104), f"Vàlid: {valid_text}", font=font_med, fill=(180, 230, 255, 255))
-    draw.text((x0 + 34, y0 + 150), f"Run: {run_text} · Capes: {layers_text[:90]}", font=font_small, fill=(230, 238, 245, 240))
+    draw.text((x0 + 34, y0 + 98), f"Vàlid: {valid_text}", font=font_med, fill=(185, 235, 255, 255))
+    draw.text((x0 + 34, y0 + 145), f"Run: {run_text} · Capes: {layers_text[:95]}", font=font_small, fill=(235, 242, 248, 245))
 
+    # Llegenda real si existeix; si no, escala local amb valors segons producte.
+    if legend_img is None and legend_layer:
+        legend_img = make_local_legend(legend_layer)
     if legend_img:
         leg = legend_img.convert("RGBA")
-        max_w = min(620, canvas.width // 3)
-        scale = min(max_w / leg.width, 260 / leg.height, 2.4)
+        max_w = min(720, canvas.width // 2)
+        scale = min(max_w / leg.width, 260 / leg.height, 3.0)
         leg = leg.resize((max(1, int(leg.width * scale)), max(1, int(leg.height * scale))), Image.Resampling.LANCZOS)
-        leg_pad = 20
+        leg_pad = 22
         lx = canvas.width - leg.width - 2 * leg_pad - pad
         ly = canvas.height - leg.height - 2 * leg_pad - pad
-        draw.rounded_rectangle((lx, ly, lx + leg.width + 2 * leg_pad, ly + leg.height + 2 * leg_pad), radius=24, fill=(2, 10, 22, 225), outline=(255, 255, 255, 130), width=2)
-        draw.text((lx + leg_pad, ly + 8), "Llegenda ECMWF", font=get_font(24), fill=(255, 255, 255, 245))
+        draw.rounded_rectangle((lx, ly, lx + leg.width + 2 * leg_pad, ly + leg.height + 2 * leg_pad), radius=24, fill=(4, 13, 28, 226), outline=(255, 255, 255, 150), width=2)
+        draw.text((lx + leg_pad, ly + 10), "Llegenda", font=get_font(26), fill=(255, 255, 255, 245))
         overlay.alpha_composite(leg, (lx + leg_pad, ly + leg_pad + 30))
-    else:
-        leg_w, leg_h = 500, 110
-        lx, ly = canvas.width - leg_w - pad, canvas.height - leg_h - pad
-        draw.rounded_rectangle((lx, ly, lx + leg_w, ly + leg_h), radius=22, fill=(2, 10, 22, 222), outline=(255, 255, 255, 110), width=2)
-        draw.text((lx + 20, ly + 12), "Llegenda orientativa", font=get_font(24), fill=(255, 255, 255, 240))
-        colors = [(30, 80, 255), (0, 220, 255), (70, 235, 70), (255, 235, 0), (255, 115, 0), (220, 0, 0)]
-        gx, gy, gh = lx + 20, ly + 55, 22
-        for i in range(350):
-            t = i / 349
-            idx = min(int(t * (len(colors) - 1)), len(colors) - 2)
-            local = t * (len(colors) - 1) - idx
-            c0, c1 = colors[idx], colors[idx + 1]
-            col = tuple(int(c0[j] * (1 - local) + c1[j] * local) for j in range(3))
-            draw.line((gx + i, gy, gx + i, gy + gh), fill=col + (255,))
-        draw.text((gx, gy + 28), "baix", font=get_font(20, False), fill=(230, 230, 230, 220))
-        draw.text((gx + 300, gy + 28), "alt", font=get_font(20, False), fill=(230, 230, 230, 220))
-
     return Image.alpha_composite(canvas, overlay)
 
 
@@ -321,13 +375,7 @@ def image_to_png_bytes(img):
 def show_pil_image(img, caption, key_prefix):
     png = image_to_png_bytes(img)
     st.image(png, use_container_width=True, caption=caption)
-    st.download_button(
-        "⬇️ Descarregar PNG en alta qualitat",
-        png,
-        file_name=f"lameteo_{key_prefix}.png",
-        mime="image/png",
-        key=f"download_png_{key_prefix}",
-    )
+    st.download_button("⬇️ Descarregar PNG en alta qualitat", png, file_name=f"lameteo_{key_prefix}.png", mime="image/png", key=f"download_png_{key_prefix}")
 
 
 def show_response_error(r):
@@ -354,7 +402,7 @@ def get_eumetsat_layers():
     r = wms_capabilities("https://view.eumetsat.int/geoserver/ows", token=token)
     if not r.ok:
         return []
-    return extract_layer_names(r.text, max_layers=500)
+    return extract_layer_names(r.text, max_layers=700)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -363,7 +411,7 @@ def get_ecmwf_layers():
     r = wms_capabilities("https://eccharts.ecmwf.int/wms/", ecmwf_key=key)
     if not r.ok:
         return []
-    return extract_layer_names(r.text, max_layers=500)
+    return extract_layer_names(r.text, max_layers=700)
 
 
 def render_ecmwf_frame(layer_names, model_domain, forecast_hour, opacity, show_borders=True, show_overlay=True):
@@ -373,8 +421,6 @@ def render_ecmwf_frame(layer_names, model_domain, forecast_hour, opacity, show_b
     width, height = DOMAINS[model_domain]["size"]
     ecmwf_key = clean_secret("ECMWF_API_KEY")
     base = dark_background(width, height)
-    if show_borders:
-        base = add_borders(base, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 120), line_width=2)
     loaded = []
     captions = []
     extra = {"TIME": time_iso}
@@ -384,6 +430,7 @@ def render_ecmwf_frame(layer_names, model_domain, forecast_hour, opacity, show_b
             loaded.append(image_from_response(r))
             captions.append(layer)
         else:
+            # Fallback sense TIME, per capes que no accepten aquest paràmetre.
             r2 = wms_getmap("https://eccharts.ecmwf.int/wms/", layer, DOMAINS[model_domain]["bbox"], width, height, ecmwf_key=ecmwf_key, transparent="true")
             if r2.ok and "image" in r2.headers.get("content-type", ""):
                 loaded.append(image_from_response(r2))
@@ -392,17 +439,10 @@ def render_ecmwf_frame(layer_names, model_domain, forecast_hour, opacity, show_b
         return None, [], valid_time, model_run, time_iso
     final = compose_layers(base, loaded, [opacity] * len(loaded))
     if show_borders:
-        final = add_borders(final, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 170), line_width=2)
+        final = add_borders(final, DOMAINS[model_domain]["bbox"], color=(255, 255, 255, 185), line_width=2)
     if show_overlay:
         legend = wms_legend(captions[0], ecmwf_key=ecmwf_key)
-        final = add_map_badges(
-            final,
-            readable_title(captions),
-            model_time_label(valid_time),
-            model_run.strftime('%d/%m %H UTC'),
-            " + ".join(captions),
-            legend_img=legend,
-        )
+        final = add_map_badges(final, readable_title(captions), model_time_label(valid_time), model_run.strftime('%d/%m %H UTC'), " + ".join(captions), legend_img=legend, legend_layer=captions[0])
     return final, captions, valid_time, model_run, time_iso
 
 
@@ -435,7 +475,7 @@ with tab_sat:
     st.markdown("<div class='timebox'>🕒 Satèl·lit: última imatge disponible del servei EUMETSAT WMS.</div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.1, 1.2, 1])
     with c1:
-        sat_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=2, key="sat_domain")
+        sat_domain = st.selectbox("Mapa", list(DOMAINS.keys()), index=1, key="sat_domain")
     with c2:
         sat_label = st.selectbox("Variable satèl·lit", list(SAT_LAYERS.keys()), key="sat_layer")
     with c3:
@@ -459,7 +499,7 @@ with tab_sat:
             if r.ok and "image" in r.headers.get("content-type", ""):
                 img = image_from_response(r)
                 if show_borders_sat:
-                    img = add_borders(img, DOMAINS[sat_domain]["bbox"], color=(255, 255, 255, 165), line_width=2)
+                    img = add_borders(img, DOMAINS[sat_domain]["bbox"], color=(255, 255, 255, 175), line_width=2)
                 show_pil_image(img, f"EUMETSAT · {layer} · {sat_domain} · última imatge disponible", key_prefix=f"sat_{sat_domain}_{layer}".replace(":", "_").replace(" ", "_"))
             else:
                 show_response_error(r)
@@ -541,30 +581,21 @@ with tab_ecmwf:
 
 with tab_api:
     st.subheader("🔐 Estat de claus i capes")
-    st.write("EUMETSAT_KEY:", "✅ configurada" if has_secret("EUMETSAT_KEY") else "❌ falta")
-    st.write("EUMETSAT_SECRET:", "✅ configurada" if has_secret("EUMETSAT_SECRET") else "❌ falta")
-    st.write("ECMWF_API_KEY:", "✅ configurada" if has_secret("ECMWF_API_KEY") else "❌ falta")
+    st.write(f"EUMETSAT_KEY: {'✅ configurada' if has_secret('EUMETSAT_KEY') else '❌ falta'}")
+    st.write(f"EUMETSAT_SECRET: {'✅ configurada' if has_secret('EUMETSAT_SECRET') else '❌ falta'}")
+    st.write(f"ECMWF_API_KEY: {'✅ configurada' if has_secret('ECMWF_API_KEY') else '❌ falta'}")
     st.divider()
-
-    if st.button("Provar GetCapabilities EUMETSAT", key="cap_eumetsat"):
+    if st.button("Provar GetCapabilities EUMETSAT", key="cap_sat_btn"):
         token, err = get_eumetsat_token()
         if err:
             st.error(err)
         else:
             r = wms_capabilities("https://view.eumetsat.int/geoserver/ows", token=token)
-            st.write("HTTP", r.status_code, r.headers.get("content-type"))
-            if r.ok:
-                st.code("\n".join(extract_layer_names(r.text, 500)) or r.text[:1500])
-            else:
-                st.code(r.text[:1500])
-
-    if st.button("Provar GetCapabilities ECMWF", key="cap_ecmwf"):
+            st.write("HTTP", r.status_code)
+            st.code(r.text[:3000])
+    if st.button("Provar GetCapabilities ECMWF", key="cap_ecmwf_btn"):
         key = clean_secret("ECMWF_API_KEY")
         r = wms_capabilities("https://eccharts.ecmwf.int/wms/", ecmwf_key=key)
-        st.write("HTTP", r.status_code, r.headers.get("content-type"))
-        if r.ok:
-            st.code("\n".join(extract_layer_names(r.text, 500)) or r.text[:1500])
-        else:
-            st.code(r.text[:1500])
-
-st.info("Corregit: botons amb identificadors únics, PNG HD i MP4 sense error de StreamlitDuplicateElementId.")
+        st.write("HTTP", r.status_code)
+        st.code(r.text[:3000])
+    st.info("Actualitzat: més capes de satèl·lit, més variables ECMWF, llegendes més grans amb valors i exportació PNG/MP4.")
