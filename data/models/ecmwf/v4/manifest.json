@@ -1,0 +1,1 @@
+{"ok":true,"source":"ECMWF Open Data · IFS","run":"2026-10-10T06:00:00Z","generated_at":"2026-10-10T14:41:36Z","variables":["temperature_2m","precipitation","wind_10m","gust","temperature_850","geopotential_500","cape","snow"],"regions":["catalunya","peninsula","mediterrani","europa"],"horizon_hours":72,"step_hours":6}
