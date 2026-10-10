@@ -41,6 +41,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ecmwf-opendata eccodes numpy
 
+      - name: Fetch official ICGC boundary layers
+        continue-on-error: true
+        run: python models/ecmwf/download_icgc_boundaries.py
+
       - name: Build ECMWF interactive grid
         run: python models/ecmwf/generate_temperature_catalunya.py
 
@@ -49,6 +53,7 @@ jobs:
           git config user.name "Lameteo Models Bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/models/ecmwf/temperature_2m_catalunya.json
+          if [ -d data/cartography ]; then git add data/cartography; fi
           if git diff --cached --quiet; then
             echo "No data changes."
             exit 0
