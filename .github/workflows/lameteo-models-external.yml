@@ -1,6 +1,11 @@
 name: Lameteo · Models GFS ICON-EU
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/lameteo_models_external.py'
+      - '.github/workflows/lameteo-models-external.yml'
   schedule:
     - cron: '20 5,17 * * *' 
 permissions:
