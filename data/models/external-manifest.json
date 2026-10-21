@@ -1,12 +1,28 @@
 {
-  "schema": 1,
-  "generated_at": "2026-10-21T21:47:45Z",
+  "schema": 2,
+  "generated_at": "2026-10-21T22:15:20Z",
   "models": [
     {
       "id": "gfs",
-      "run": "2026-10-21T12:00:00Z",
+      "run": "2026-10-21T18:00:00Z",
       "variables": [
-        "temperature_2m"
+        "temperature_2m",
+        "temperature_850",
+        "temperature_500",
+        "dewpoint_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "precipitation",
+        "wind_10m",
+        "wind_850",
+        "jet_300",
+        "gust",
+        "geopotential_500",
+        "cape",
+        "cin",
+        "cloud_cover",
+        "snow_depth",
+        "visibility"
       ],
       "regions": [
         "catalunya",
@@ -19,7 +35,21 @@
       "id": "icon_eu",
       "run": "2026-10-21T18:00:00Z",
       "variables": [
-        "temperature_2m"
+        "temperature_2m",
+        "dewpoint_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "precipitation",
+        "wind_10m",
+        "gust",
+        "cape",
+        "cin",
+        "cloud_cover",
+        "cloud_cover_low",
+        "cloud_cover_mid",
+        "cloud_cover_high",
+        "snow_depth",
+        "visibility"
       ],
       "regions": [
         "catalunya",
