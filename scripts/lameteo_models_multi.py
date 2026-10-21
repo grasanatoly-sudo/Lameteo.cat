@@ -202,6 +202,9 @@ def generate(model,run,variable,out):
                 values=np.hypot(layers[0][2],layers[1][2])*3.6
             else:
                 values=transform(first,mode)
+            if variable=='cin' and model=='icon_eu':
+                # DWD also encodes undefined convective inhibition as -999.9.
+                values=np.where(values < -800.0,np.nan,values)
             if variable=='precipitation' and model=='icon_eu':
                 # DWD TOT_PREC is cumulative since initialization.
                 this_total=np.asarray(values)
