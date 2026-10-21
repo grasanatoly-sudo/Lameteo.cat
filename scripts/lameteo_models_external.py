@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import bz2
 from datetime import datetime, timedelta, timezone
-import io
+import tempfile
 import json
 from pathlib import Path
 import re
@@ -67,7 +67,9 @@ def get_bytes(url: str, *, headers: dict | None = None, limit: int = MAX_FILE_BY
 
 def decode_grib(data: bytes) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     import eccodes
-    with io.BytesIO(data) as stream:
+    with tempfile.TemporaryFile(mode='w+b') as stream:
+        stream.write(data)
+        stream.seek(0)
         handle = eccodes.codes_grib_new_from_file(stream)
         if handle is None:
             raise ValueError('No GRIB message found')
