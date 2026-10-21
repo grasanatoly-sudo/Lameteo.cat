@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-21T21:47:45Z",
+  "models": [
+    {
+      "id": "gfs",
+      "run": "2026-10-21T12:00:00Z",
+      "variables": [
+        "temperature_2m"
+      ],
+      "regions": [
+        "catalunya",
+        "peninsula",
+        "mediterrani",
+        "europa"
+      ]
+    },
+    {
+      "id": "icon_eu",
+      "run": "2026-10-21T18:00:00Z",
+      "variables": [
+        "temperature_2m"
+      ],
+      "regions": [
+        "catalunya",
+        "peninsula",
+        "mediterrani",
+        "europa"
+      ]
+    }
+  ]
+}
