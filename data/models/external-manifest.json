@@ -1,10 +1,10 @@
 {
   "schema": 2,
-  "generated_at": "2026-11-24T16:12:37Z",
+  "generated_at": "2026-11-25T01:29:50Z",
   "models": [
     {
       "id": "gfs",
-      "run": "2026-11-24T06:00:00Z",
+      "run": "2026-11-24T18:00:00Z",
       "variables": [
         "temperature_2m",
         "temperature_850",
@@ -33,7 +33,7 @@
     },
     {
       "id": "icon_eu",
-      "run": "2026-11-24T12:00:00Z",
+      "run": "2026-11-24T18:00:00Z",
       "variables": [
         "temperature_2m",
         "dewpoint_2m",
